@@ -46,6 +46,7 @@ practice that step already acts as your authentication.
 - Python 3.11+
 
 ![Main screen](./images/main.webp)
+
 ![Gallery screen](./images/gallery.webp)
 
 ## How it works

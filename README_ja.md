@@ -42,6 +42,7 @@ Tailscale経由であれば、tailnetへの参加自体がアカウント認証�
 - Python 3.11+
 
 ![操作画面](./images/main.webp)
+
 ![gallery画面](./images/gallery.webp)
 
 ## しくみ
