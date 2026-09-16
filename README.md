@@ -9,6 +9,8 @@ browsed in a simple gallery.
 ComfyUI itself is never exposed to the network — only this relay server is, and
 it is meant to be reached over a private network (Tailscale).
 
+![Main_screen1](./images/main1.webp)
+
 ## Why this approach
 
 You can publish ComfyUI with `--listen` and open it from your phone, but what
@@ -44,10 +46,6 @@ practice that step already acts as your authentication.
 - Windows 11 (should work on Linux/macOS, untested)
 - ComfyUI v0.34.0
 - Python 3.11+
-
-![Main screen](./images/main.webp)
-
-![Gallery screen](./images/gallery.webp)
 
 ## How it works
 
@@ -102,6 +100,8 @@ playwright install chromium
 Adjust the settings at the top of `relay_server.py` (or set them as environment
 variables) to match your environment.
 
+### Connection and behaviour
+
 | Variable | Meaning | Default |
 |---|---|---|
 | `COMFYUI_URL` | ComfyUI's URL | `http://127.0.0.1:8188` |
@@ -113,6 +113,25 @@ variables) to match your environment.
 | `NAV_TIMEOUT_MS` | Timeout for page navigation | `30000` |
 | `UI_READY_TIMEOUT_MS` | How long to wait for the UI to become usable | `45000` |
 | `HEADLESS` | `0` shows the browser window (for debugging) | `1` |
+
+### Gallery appearance
+
+| Variable | Meaning | Default |
+|---|---|---|
+| `GRID_MIN_PX` | Minimum column width in the grid (px). **This is what decides the column count** | `180` |
+| `THUMB_MAX` | Longest edge of grid thumbnails (px) | `400` |
+| `THUMB_QUALITY` | JPEG quality of grid thumbnails | `80` |
+| `VIEW_MAX` | Longest edge of viewer images (px) | `1280` |
+| `VIEW_QUALITY` | JPEG quality of viewer images | `85` |
+| `SLIDESHOW_SEC` | Seconds per image during a slideshow | `5` |
+
+![gallery_screen1](./images/gallery1.webp)
+
+![gallery_screen2](./images/gallery2.webp)
+
+`THUMB_MAX` is the resolution of the JPEG being served; it has nothing to do with
+how many columns the grid has. To get fewer, larger cells, raise `GRID_MIN_PX`
+(`180` gives about two columns on a phone).
 
 ### ⚠️ Turn off workflow auto save
 
@@ -126,7 +145,11 @@ Save them under `<COMFYUI_ROOT>\user\default\workflows\mobile\` in the normal
 format (NOT the API format). In Graph mode, use Save As with a name like
 `mobile/xxx` and it lands in that folder.
 
-Whatever is in there shows up in the dropdown on the phone.
+Subfolders are picked up recursively, so `mobile/abc/foo.json` is listed as
+`abc/foo`. If a workflow accidentally ends up in a subfolder, the dropdown makes
+it obvious.
+
+![Main_screen2](./images/main2.webp)
 
 ## Running
 
@@ -177,16 +200,47 @@ behaves for a person clicking Run repeatedly.
 Switching to a different workflow always re-reads from disk, so a stale copy only
 matters for the workflow that is currently loaded.
 
+## Gallery
+
+The gallery walks the output folder recursively and shows everything **in one
+list, newest first**. Even if your workflow sorts output into monthly subfolders
+via `%date:yyMM%`, you browse it as a single timeline without thinking about
+folder boundaries. This turned out to be more useful than expected — for checking
+what just came out, it beats clicking through folders in a file manager.
+
+Tapping a thumbnail opens a **full-screen viewer inside the page**, not a new tab.
+
+| Action | Phone | PC |
+|---|---|---|
+| Next / previous | Swipe left/right, tap screen edges | Arrow keys, click screen edges |
+| Close | Swipe down, × at top right | Esc, × at top right |
+| Slideshow | ▶ button | ▶ button, spacebar |
+
+![slideshow](./images/slideshow.webp)
+
+- It wraps around at both ends
+- The viewer serves images resized to `VIEW_MAX`, so paging stays light over a
+  mobile connection. The neighbouring images are preloaded, so it rarely stalls
+- Need the original? "Open original" at the bottom. Save from there, or long-press
+  the displayed image
+
+None of this is phone-only — **the same URL works from the PC's own browser**
+(`http://127.0.0.1:8080/gallery`). With arrow keys and the spacebar available,
+browsing is arguably nicer there.
+
 ## Endpoints
 
 | Path | Purpose |
 |---|---|
 | `GET /` | Phone UI |
-| `GET /workflows` | Workflows found in the target folder |
+| `GET /workflows` | Workflows found in the target folder (subfolders included) |
 | `POST /run?workflow=<name>&count=<n>` | Run |
 | `GET /status` | Queue length (running / pending) |
 | `POST /reload` | Reload the page and force a fresh read on the next run |
-| `GET /gallery` | Output images (newest first, subfolders included) |
+| `GET /gallery` | Output images and viewer (newest first, subfolders included) |
+| `GET /thumb/<rel path>` | Grid thumbnail |
+| `GET /view/<rel path>` | Resized image for the viewer |
+| `GET /full/<rel path>` | The untouched original |
 | `POST /stop` | Shut down the headless browser (auto-restarts on next run) |
 | `GET /debug/state` | Current workflow name, page title, node count |
 | `GET /debug/screenshot` | Screenshot of the headless browser |
@@ -258,6 +312,26 @@ Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled True
 Check that `MOBILE_FOLDER` points at the right path. The list is read straight
 from disk, so files show up without restarting ComfyUI.
 
+### The PC rebooted while I was out
+
+Usually a Windows Update auto-restart. In Event Viewer (Windows Logs → System),
+look for event ID `1074`; if `TrustedInstaller.exe` is the requesting process,
+that's it. IDs `41` or `6008` mean a crash instead, which is a different problem.
+
+To stop auto-restarts while you are logged on, in an elevated PowerShell:
+
+```powershell
+$p = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU"
+New-Item -Path $p -Force | Out-Null
+Set-ItemProperty -Path $p -Name "NoAutoRebootWithLoggedOnUsers" -Type DWord -Value 1
+gpupdate /force
+```
+
+Updates still install and wait in a "restart required" state. This doesn't cover
+every case, so it's worth putting a shortcut to `start_relay.bat` in the startup
+folder (`Win+R` → `shell:startup`) so things come back on their own after a
+reboot.
+
 ### It broke after a ComfyUI update
 
 Only two selectors depend on the DOM. Fixing these should be enough:
@@ -286,7 +360,7 @@ typeof window.app?.loadGraphData   // "function" means it's usable
 - No workflow editing (a deliberate trade-off)
 - No authentication (private network assumed)
 - The gallery walks the whole output folder each time, so it gets slower as
-  images pile up
+  images pile up (capped at the newest 200)
 - Depends on ComfyUI's frontend implementation
 
 ## Development notes
